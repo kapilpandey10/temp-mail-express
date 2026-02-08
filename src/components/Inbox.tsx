@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Mail, ArrowLeft, ExternalLink, Copy, Clock, ChevronRight, 
-  RefreshCw, ShieldCheck, Hash, Trash2, Gift 
+  RefreshCw, ShieldCheck, Hash, Trash2, Gift, Volume2, VolumeX 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
@@ -25,10 +25,10 @@ Thank you for using GhostMail - your secure, disposable email service.
 Here's what you need to know:
 
 🔐 SECURITY FEATURES:
-• Your session is hardware-locked to this device only
-• All emails are encrypted with AES-256
-• Messages auto-delete after 5 minutes
-• No data is stored permanently
+- Your session is hardware-locked to this device only
+- All emails are encrypted with AES-256
+- Messages auto-delete after 5 minutes
+- No data is stored permanently
 
 ⚡ HOW TO USE:
 1. Share this temporary email address for signups, OTPs, or verifications
@@ -37,10 +37,10 @@ Here's what you need to know:
 4. All data vanishes after the timer expires
 
 🎯 PRO TIPS:
-• You can manually delete messages anytime
-• Refresh to check for new emails
-• The timer shows remaining session time
-• Use random generation for maximum anonymity
+- You can manually delete messages anytime
+- Refresh to check for new emails
+- The timer shows remaining session time
+- Use random generation for maximum anonymity
 
 Need help? Visit: https://pandeykapil.com.np/support
 
@@ -55,6 +55,61 @@ const Inbox = ({ emails, isFetching, onDeleteEmail }: InboxProps) => {
   const [selectedEmail, setSelectedEmail] = useState<any | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [deletingEmails, setDeletingEmails] = useState<Set<string>>(new Set());
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const previousEmailCount = useRef(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize audio on mount
+  useEffect(() => {
+    // Create notification sound using Web Audio API
+    audioRef.current = new Audio();
+    
+    // You can use a custom sound file or the default notification sound
+    // Option 1: Use a notification sound URL
+    // audioRef.current.src = '/sounds/notification.mp3';
+    
+    // Option 2: Use a data URL for a simple beep (no external file needed)
+    audioRef.current.src = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIGGi66+aiUhELTqHf7bllHAU2jdXuy3YnBSp+yfDajzsKFFux6OyrWBQLSJzd8L1rIAUrlc/03It3KwYSabvs56NUFQ1Qp+PvsmEcBTiQ1vPNdysGJ3zJ8N2RQAoUXrTp66lWFApFnt/xwG4gBSuBzvLaijYIGWi66+ejUhELTqHf7bllHAU2jdTty3YnBSp+yPDajzsKFFux6OyrWBQLR5zd8L5rHwUrlc/03It3KwYSabvs56NUFQ1Qp+PvsmEcBTiQ1vPNdysGKHzJ8N2RQAoUXrTp66lWFApFnt/xwG4gBSuBzvLaijYIGWi76+ejUhELTaHf7bllHAU2jdTty3YnBSp+yPDajzsKE1ux6OyrWBQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OyrWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OyrWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIGGi76+ejUhELTaHf7blmHAU2jdTty3YnBSp+yPDajzsKE1ux6OysWRQLSJzd8L5rIAUrlc/03It3KwYTabbr56NUFQ1Qp+PvsmEcBTiP1vPNdysGKHzJ8N+RQQoUXrPp66lWFApFnt/xwG4gBSuBzvLaijYIG==';
+    
+    audioRef.current.volume = 0.5; // Set volume to 50%
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Play notification sound when new email arrives
+  useEffect(() => {
+    const currentEmailCount = emails.length;
+    
+    // Only play sound if:
+    // 1. Sound is enabled
+    // 2. Email count increased (new email arrived)
+    // 3. This isn't the initial load (previousEmailCount > 0)
+    if (soundEnabled && currentEmailCount > previousEmailCount.current && previousEmailCount.current > 0) {
+      playNotificationSound();
+      
+      // Show toast notification
+      toast.success('New Email Received!', {
+        description: emails[0]?.subject || 'Check your inbox',
+        duration: 3000,
+      });
+    }
+    
+    previousEmailCount.current = currentEmailCount;
+  }, [emails.length, soundEnabled]);
+
+  const playNotificationSound = () => {
+    if (audioRef.current && soundEnabled) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(error => {
+        console.log('Audio play failed:', error);
+      });
+    }
+  };
 
   // Show welcome message after 5 seconds
   useEffect(() => {
@@ -286,12 +341,27 @@ const Inbox = ({ emails, isFetching, onDeleteEmail }: InboxProps) => {
         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">
           Encrypted Feed ({visibleEmails.length})
         </h3>
-        <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-50 rounded-full border border-emerald-100">
-          <span className="flex h-1.5 w-1.5 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-          </span>
-          <span className="text-[8px] font-black text-emerald-600 uppercase">Live</span>
+        <div className="flex items-center gap-2">
+          {/* Sound Toggle Button */}
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`p-2 rounded-lg transition-all ${
+              soundEnabled 
+                ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
+                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+            }`}
+            title={soundEnabled ? 'Sound enabled' : 'Sound disabled'}
+          >
+            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          </button>
+          
+          <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-50 rounded-full border border-emerald-100">
+            <span className="flex h-1.5 w-1.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            </span>
+            <span className="text-[8px] font-black text-emerald-600 uppercase">Live</span>
+          </div>
         </div>
       </div>
       

@@ -25,3 +25,4 @@ command = ""
 
 [build.upload]
 format = "service-worker"
+workers_dev = true
