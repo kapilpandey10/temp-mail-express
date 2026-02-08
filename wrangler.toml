@@ -6,6 +6,22 @@ compatibility_date = "2024-01-01"
 binding = "EMAIL_STORE"
 id = "ddb43bdb69a942ff8d3622645754edb0"
 
-[vars]
-# Use a secret string here - must match the API_TOKEN in your frontend
 API_AUTH_TOKEN = "kapil_secure_token_2026"
+
+
+
+# Email routing configuration
+[[email]]
+name = "EMAIL_ROUTE"
+
+# Route all emails to the worker
+[[routes]]
+pattern = "*@pandeykapil.com.np"
+custom_domain = false
+
+# Build configuration
+[build]
+command = ""
+
+[build.upload]
+format = "service-worker"

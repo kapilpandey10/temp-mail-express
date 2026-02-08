@@ -1,227 +1,362 @@
-import { useState } from "react";
-import { Mail, ArrowLeft, Copy, ExternalLink, Hash, Clock, Paperclip } from "lucide-react";
-import { Button } from "./ui/button";
-import { toast } from "sonner";
+import React, { useState, useEffect } from "react";
+import { 
+  Mail, ArrowLeft, ExternalLink, Copy, Clock, ChevronRight, 
+  RefreshCw, ShieldCheck, Hash, Trash2, Gift 
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
-export const Inbox = ({ emails, onDeleteEmail }: { emails: any[], onDeleteEmail: (id: string) => void }) => {
+interface InboxProps {
+  emails: any[];
+  isFetching: boolean;
+  onDeleteEmail?: (emailId: string) => void;
+}
+
+// Welcome message that appears after 5 seconds
+const WELCOME_MESSAGE = {
+  id: 'welcome-message',
+  from: 'team@pandeykapil.com.np',
+  subject: 'Welcome to GhostMail! 🎉',
+  body: `Hey there, Ghost! 👻
+
+Thank you for using GhostMail - your secure, disposable email service.
+
+Here's what you need to know:
+
+🔐 SECURITY FEATURES:
+• Your session is hardware-locked to this device only
+• All emails are encrypted with AES-256
+• Messages auto-delete after 5 minutes
+• No data is stored permanently
+
+⚡ HOW TO USE:
+1. Share this temporary email address for signups, OTPs, or verifications
+2. Receive emails instantly in this inbox
+3. Click on any OTP code to copy it automatically
+4. All data vanishes after the timer expires
+
+🎯 PRO TIPS:
+• You can manually delete messages anytime
+• Refresh to check for new emails
+• The timer shows remaining session time
+• Use random generation for maximum anonymity
+
+Need help? Visit: https://pandeykapil.com.np/support
+
+Stay anonymous, stay secure! 🛡️
+
+- The GhostMail Team`,
+  timestamp: new Date().toISOString(),
+  isWelcome: true
+};
+
+const Inbox = ({ emails, isFetching, onDeleteEmail }: InboxProps) => {
   const [selectedEmail, setSelectedEmail] = useState<any | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [deletingEmails, setDeletingEmails] = useState<Set<string>>(new Set());
+
+  // Show welcome message after 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowWelcome(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Combine welcome message with actual emails
+  const allEmails = showWelcome ? [WELCOME_MESSAGE, ...emails] : emails;
+
+  // Handle delete with confirmation
+  const handleDelete = (emailId: string, emailSubject: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent email from opening when clicking delete
+
+    // Check if it's the welcome message
+    if (emailId === 'welcome-message') {
+      setShowWelcome(false);
+      toast.success("Welcome message removed");
+      return;
+    }
+
+    // Add to deleting set for loading state
+    setDeletingEmails(prev => new Set([...prev, emailId]));
+
+    // Show confirmation toast with undo option
+    toast.success(`Deleted: ${emailSubject}`, {
+      description: "Message permanently removed",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setDeletingEmails(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(emailId);
+            return newSet;
+          });
+          toast.info("Delete cancelled");
+        },
+      },
+      duration: 3000,
+    });
+
+    // Actually delete after a short delay (allows undo)
+    setTimeout(() => {
+      if (onDeleteEmail) {
+        onDeleteEmail(emailId);
+      }
+      setDeletingEmails(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(emailId);
+        return newSet;
+      });
+      
+      // Close detail view if deleted email was selected
+      if (selectedEmail?.id === emailId) {
+        setSelectedEmail(null);
+      }
+    }, 3000);
+  };
 
   const renderParsedBody = (text: string) => {
-    const regex = /(\b\d{4,8}\b|https?:\/\/[^\s]+)/g;
-    const parts = text.split(regex);
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const otpRegex = /\b\d{4,8}\b/g;
+    const parts = text.split(urlRegex);
+    
     return parts.map((part, i) => {
-      if (/^\d{4,8}$/.test(part)) {
-        return (
-          <span 
-            key={i} 
-            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-black border border-blue-600 inline-flex items-center gap-2 shadow-lg hover:scale-105 transition-transform cursor-pointer"
-            onClick={() => {
-              navigator.clipboard.writeText(part);
-              toast.success("Code copied!", { description: part });
-            }}
-          >
-            <Hash className="w-4 h-4" />
-            {part}
-          </span>
-        );
-      }
-      if (/^https?:\/\//.test(part)) {
+      if (urlRegex.test(part)) {
+        const isImage = /\.(jpeg|jpg|gif|png|webp)$/i.test(part);
+        if (isImage) {
+          return (
+            <div key={i} className="my-6 group relative">
+              <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl blur opacity-10 transition duration-500"></div>
+              <div className="relative bg-white p-1 rounded-xl border border-slate-100 shadow-md">
+                <img 
+                  src={part} 
+                  alt="Transmission" 
+                  className="max-w-full h-auto rounded-lg" 
+                  onError={(e) => (e.currentTarget.style.display = 'none')} 
+                />
+              </div>
+            </div>
+          );
+        }
         return (
           <a 
             key={i} 
             href={part} 
             target="_blank" 
             rel="noreferrer" 
-            className="text-blue-600 hover:text-blue-700 underline decoration-2 underline-offset-2 break-all font-medium inline-flex items-center gap-1 hover:gap-2 transition-all"
+            className="text-blue-600 font-bold underline decoration-1 underline-offset-2 break-all hover:text-blue-700"
           >
-            {part} 
-            <ExternalLink className="w-3 h-3 inline" />
+            {part} <ExternalLink size={10} className="inline ml-0.5" />
           </a>
         );
       }
-      return part;
+      
+      const subParts = part.split(otpRegex);
+      const matches = part.match(otpRegex);
+      return (
+        <span key={i}>
+          {subParts.map((sub, idx) => (
+            <React.Fragment key={idx}>
+              {sub}
+              {matches?.[idx] && (
+                <span 
+                  className="mx-1 px-2 py-0.5 rounded-md bg-blue-600 text-white text-sm font-black shadow-sm cursor-pointer hover:bg-blue-700 transition-colors inline-flex items-center"
+                  onClick={() => { 
+                    navigator.clipboard.writeText(matches[idx]); 
+                    toast.success("Code Copied", { description: matches[idx] }); 
+                  }}
+                >
+                  <Hash size={10} className="mr-1" /> {matches[idx]}
+                </span>
+              )}
+            </React.Fragment>
+          ))}
+        </span>
+      );
     });
   };
 
-  const getInitials = (email: string) => {
-    const name = email.split('@')[0];
-    return name.slice(0, 2).toUpperCase();
-  };
+  const getInitials = (email: string) => email.split('@')[0].slice(0, 1).toUpperCase();
 
-  const getColorFromEmail = (email: string) => {
-    const colors = [
-      'from-blue-500 to-indigo-600',
-      'from-purple-500 to-pink-600',
-      'from-green-500 to-teal-600',
-      'from-orange-500 to-red-600',
-      'from-cyan-500 to-blue-600',
-      'from-violet-500 to-purple-600',
-    ];
-    const index = email.charCodeAt(0) % colors.length;
-    return colors[index];
-  };
-
-  if (emails.length === 0) {
+  if (isFetching && emails.length === 0 && !showWelcome) {
     return (
-      <div className="text-center py-32 animate-in fade-in duration-700">
-        <div className="relative inline-block mb-6">
-          <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full" />
-          <div className="relative bg-gradient-to-br from-slate-100 to-blue-100 p-8 rounded-3xl">
-            <Mail className="w-20 h-20 text-slate-400 animate-pulse" />
-          </div>
+      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+        <RefreshCw className="w-6 h-6 animate-spin text-blue-500 mb-3" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em]">Syncing Feed...</p>
+      </div>
+    );
+  }
+
+  if (allEmails.length === 0) {
+    return (
+      <div className="text-center py-12 px-6 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <Mail className="w-5 h-5 text-slate-300" />
         </div>
-        <h3 className="text-2xl font-black text-slate-900 mb-2">No Messages Yet</h3>
-        <p className="text-slate-500 font-medium max-w-md mx-auto">
-          Your inbox is empty. Emails sent to your temporary address will appear here automatically.
-        </p>
-        <div className="flex items-center justify-center gap-2 mt-6 text-sm text-slate-400">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span className="font-medium">Auto-refreshing every 10 seconds</span>
-        </div>
+        <h3 className="text-base font-bold text-slate-900 mb-1">Frequency Silent</h3>
+        <p className="text-xs text-slate-400 max-w-[200px] mx-auto">Waiting for incoming secure transmissions...</p>
       </div>
     );
   }
 
   if (selectedEmail) {
+    const isDeleting = deletingEmails.has(selectedEmail.id);
+    const isWelcomeMsg = selectedEmail.id === 'welcome-message';
+
     return (
-      <div className="animate-in fade-in slide-in-from-right-4 duration-500">
+      <div className="animate-in fade-in slide-in-from-right-2 duration-200">
         <Button 
           variant="ghost" 
+          size="sm"
           onClick={() => setSelectedEmail(null)} 
-          className="mb-6 -ml-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl font-bold"
+          className="mb-4 -ml-2 text-slate-400 hover:text-blue-600 font-bold text-[10px] uppercase tracking-wider"
         >
-          <ArrowLeft className="mr-2 h-5 w-5" /> 
-          Back to Inbox
+          <ArrowLeft className="mr-1.5 h-3 w-3" /> Back
         </Button>
         
-        <div className="bg-gradient-to-br from-white to-slate-50 border-2 border-slate-100 rounded-[2.5rem] overflow-hidden shadow-2xl">
-          {/* Email Header */}
-          <div className="bg-gradient-to-r from-slate-900 to-blue-900 text-white p-8 md:p-10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl" />
-            <div className="relative">
-              <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-6 leading-tight">
+        <div className={`bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-lg transition-opacity ${isDeleting ? 'opacity-50' : 'opacity-100'}`}>
+          <div className={`p-5 md:p-6 ${isWelcomeMsg ? 'bg-gradient-to-r from-blue-600 to-indigo-600' : 'bg-slate-950'} text-white`}>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <h2 className="text-lg md:text-xl font-bold leading-tight flex-1">
                 {selectedEmail.subject}
               </h2>
-              
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${getColorFromEmail(selectedEmail.from)} flex items-center justify-center text-white font-black text-xl shadow-xl`}>
-                  {getInitials(selectedEmail.from)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-lg mb-1 truncate">{selectedEmail.from}</p>
-                  <div className="flex items-center gap-3 text-sm text-blue-200">
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      {format(new Date(selectedEmail.timestamp), "PPP 'at' p")}
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => { 
-                    navigator.clipboard.writeText(selectedEmail.body); 
-                    toast.success("Email content copied!"); 
-                  }}
-                  className="bg-white/10 hover:bg-white/20 text-white rounded-xl"
-                >
-                  <Copy className="w-5 h-5" />
-                </Button>
+              {isWelcomeMsg && (
+                <Gift className="w-6 h-6 text-white/80 flex-shrink-0" />
+              )}
+            </div>
+            <div className="flex items-center gap-3 border-t border-white/10 pt-4">
+              <div className={`w-9 h-9 rounded-lg ${isWelcomeMsg ? 'bg-white/20' : 'bg-blue-600'} flex items-center justify-center text-white font-black text-sm`}>
+                {getInitials(selectedEmail.from)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-xs truncate">{selectedEmail.from}</p>
+                <p className="text-[9px] text-white/40 uppercase font-black tracking-tighter">
+                  {format(new Date(selectedEmail.timestamp), "MMM d, h:mm a")}
+                </p>
               </div>
             </div>
           </div>
-          
-          {/* Email Body */}
-          <div className="p-8 md:p-10">
-            <div className="bg-white border-2 border-slate-100 p-8 rounded-3xl shadow-inner">
-              <pre className="whitespace-pre-wrap font-sans text-slate-700 leading-relaxed text-base md:text-lg">
-                {renderParsedBody(selectedEmail.body)}
-              </pre>
-            </div>
-            
-            {/* Email Metadata */}
-            <div className="mt-6 p-6 bg-slate-50 rounded-2xl border border-slate-200">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-slate-500 font-medium">From:</span>
-                  <p className="font-bold text-slate-900 mt-1">{selectedEmail.from}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-medium">Received:</span>
-                  <p className="font-bold text-slate-900 mt-1">
-                    {format(new Date(selectedEmail.timestamp), "PPP 'at' p")}
-                  </p>
-                </div>
-              </div>
-            </div>
+          <div className="p-6 text-slate-700 text-sm md:text-base leading-relaxed whitespace-pre-wrap selection:bg-blue-100">
+            {renderParsedBody(selectedEmail.body)}
+          </div>
+          <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3">
+             <div className="flex items-center gap-2 text-slate-400">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span className="text-[9px] font-black uppercase tracking-widest">
+                  {isWelcomeMsg ? 'Official Message' : 'Isolated Session'}
+                </span>
+             </div>
+             <div className="flex gap-2 w-full sm:w-auto">
+               <Button 
+                 size="sm"
+                 variant="outline"
+                 className="flex-1 sm:flex-none h-9 px-4 rounded-lg border-slate-200 bg-white hover:bg-slate-50 font-bold text-xs"
+                 onClick={() => { 
+                   navigator.clipboard.writeText(selectedEmail.body); 
+                   toast.success("Copied to clipboard"); 
+                 }}
+               >
+                  <Copy size={12} className="mr-1.5" /> Copy
+               </Button>
+               <Button 
+                 size="sm"
+                 variant="destructive"
+                 disabled={isDeleting}
+                 className="flex-1 sm:flex-none h-9 px-4 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs disabled:opacity-50"
+                 onClick={(e) => handleDelete(selectedEmail.id, selectedEmail.subject, e)}
+               >
+                  <Trash2 size={12} className="mr-1.5" /> 
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+               </Button>
+             </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Filter out emails that are being deleted
+  const visibleEmails = allEmails.filter(email => !deletingEmails.has(email.id));
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
-          <Mail className="w-6 h-6 text-blue-600" />
-          Inbox ({emails.length})
+    <div className="space-y-4">
+      <div className="flex items-center justify-between px-2">
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">
+          Encrypted Feed ({visibleEmails.length})
         </h3>
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span className="font-medium">Live</span>
+        <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-50 rounded-full border border-emerald-100">
+          <span className="flex h-1.5 w-1.5 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+          </span>
+          <span className="text-[8px] font-black text-emerald-600 uppercase">Live</span>
         </div>
       </div>
+      
+      <div className="grid gap-2">
+        {visibleEmails.map((email, i) => {
+          const isDeleting = deletingEmails.has(email.id);
+          const isWelcomeMsg = email.id === 'welcome-message';
 
-      <div className="space-y-3">
-        {emails.map((email, index) => (
-          <div 
-            key={email.id} 
-            onClick={() => setSelectedEmail(email)} 
-            className="group relative bg-white hover:bg-gradient-to-br hover:from-blue-50 hover:to-indigo-50 border-2 border-slate-100 hover:border-blue-200 rounded-2xl p-5 cursor-pointer transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg animate-in fade-in slide-in-from-bottom-4"
-            style={{ animationDelay: `${index * 50}ms` }}
-          >
-            <div className="flex items-start gap-4">
-              {/* Avatar */}
-              <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${getColorFromEmail(email.from)} flex items-center justify-center text-white font-black text-lg shadow-lg group-hover:scale-110 transition-transform shrink-0`}>
-                {getInitials(email.from)}
+          return (
+            <div 
+              key={email.id} 
+              onClick={() => setSelectedEmail(email)} 
+              className={`bg-white border ${isWelcomeMsg ? 'border-blue-200 bg-blue-50/30' : 'border-slate-100'} p-4 rounded-xl cursor-pointer hover:border-blue-200 hover:shadow-md transition-all flex items-center gap-4 group animate-in fade-in ${isDeleting ? 'opacity-50' : 'opacity-100'}`}
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
+              <div className={`w-10 h-10 rounded-lg ${isWelcomeMsg ? 'bg-blue-100' : 'bg-slate-50'} flex items-center justify-center ${isWelcomeMsg ? 'text-blue-600' : 'text-slate-300'} font-black text-base group-hover:bg-blue-600 group-hover:text-white transition-all shrink-0`}>
+                {isWelcomeMsg ? <Gift size={20} /> : getInitials(email.from)}
               </div>
-              
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start mb-2 gap-4">
-                  <p className="text-sm font-black text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+              <div className="flex-1 min-w-0 text-left">
+                <div className="flex justify-between items-center mb-1">
+                  <p className={`text-[9px] font-black ${isWelcomeMsg ? 'text-blue-600' : 'text-slate-400'} uppercase truncate group-hover:text-blue-500 transition-colors`}>
                     {email.from}
                   </p>
-                  <div className="flex items-center gap-1 text-xs font-bold text-slate-400 shrink-0">
-                    <Clock className="w-3 h-3" />
-                    {format(new Date(email.timestamp), "h:mm a")}
-                  </div>
+                  <span className="text-[9px] font-bold text-slate-300 flex items-center gap-1">
+                    <Clock size={8} /> {format(new Date(email.timestamp), "p")}
+                  </span>
                 </div>
-                
-                <p className="text-base font-bold text-slate-700 truncate mb-2 group-hover:text-slate-900 transition-colors">
+                <p className="text-sm font-bold text-slate-900 truncate group-hover:text-blue-600 transition-colors leading-none mb-1">
                   {email.subject}
                 </p>
-                
-                <p className="text-sm text-slate-500 truncate leading-relaxed">
-                  {email.body.slice(0, 120)}...
+                <p className="text-[11px] text-slate-400 truncate opacity-70">
+                  {(email.body || "").slice(0, 60)}...
                 </p>
               </div>
               
-              {/* Arrow indicator */}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <ArrowLeft className="w-4 h-4 text-white rotate-180" />
-                </div>
-              </div>
+              {/* Delete Button */}
+              <button
+                onClick={(e) => handleDelete(email.id, email.subject, e)}
+                disabled={isDeleting}
+                className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-600 transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Delete message"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
-            
-            {/* Unread indicator */}
-            <div className="absolute top-3 right-3 w-2 h-2 bg-blue-500 rounded-full group-hover:scale-125 transition-transform" />
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Info Banner */}
+      {visibleEmails.length > 0 && (
+        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-amber-900 mb-1">Auto-Delete Notice</p>
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                All messages will be permanently deleted after 5 minutes. You can also manually delete them anytime.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+export default Inbox;

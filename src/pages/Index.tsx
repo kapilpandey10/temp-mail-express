@@ -1,677 +1,700 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Bomb, RefreshCw, Dice5, ShieldCheck, Zap, LockKeyhole, Timer, UserCheck, X, CheckCircle2, Share, PlusSquare, Smartphone, Copy, Check, Shield, Lock, Eye, EyeOff, Sparkles, Mail, Trash2, Download, Apple } from "lucide-react";
-import { Inbox } from "../components/Inbox";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { 
+  Zap, Timer, Sparkles, Fingerprint, Volume2, VolumeX, 
+  Copy, RefreshCw, Smartphone, Share, PlusSquare, 
+  CheckCircle2, Shield, Cpu, Terminal, Layers,
+  ChevronRight, Activity, Check, Lock, Globe, 
+  ArrowRight, Star, Inbox as InboxIcon
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Footer } from "@/components/Footer";
+import { useQuery } from "@tanstack/react-query";
 
+// Modular Component Imports
+import AliasGenerator from "../components/AliasGenerator";
+import Inbox from "../components/Inbox";
+import SecurityModal from "../components/SecurityCheck";
+
+// --- CONFIGURATION ---
 const WORKER_URL = "https://temp-mail-backend.kapilpandey2068.workers.dev";
 const API_TOKEN = "kapil_secure_token_2026"; 
+const EMAIL_LIFETIME = 5 * 60; 
 
 const Index = () => {
-  const queryClient = useQueryClient();
   const [currentEmail, setCurrentEmail] = useState("");
   const [customPrefix, setCustomPrefix] = useState("");
-  const [usage, setUsage] = useState({ count: 0, resetIn: "24h" });
+  const [deviceId, setDeviceId] = useState("");
   const [isCopied, setIsCopied] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [emailCreatedAt, setEmailCreatedAt] = useState<number | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number>(EMAIL_LIFETIME);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [deletedEmails, setDeletedEmails] = useState<Set<string>>(new Set());
   
-  // PWA Install States
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
-  
-  // Captcha Modal States
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [pendingType, setPendingType] = useState<'manual' | 'random' | null>(null);
   const [mathProblem, setMathProblem] = useState({ q: "", a: 0 });
   const [userAnswer, setUserAnswer] = useState("");
-
-  // Animation states
-  const [floatingElements, setFloatingElements] = useState<Array<{id: number, x: number, y: number, delay: number}>>([]);
+  const prevEmailCount = useRef(0);
 
   useEffect(() => {
-    // Generate floating background elements
-    const elements = Array.from({ length: 15 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      delay: Math.random() * 5
-    }));
-    setFloatingElements(elements);
-
-    // Detect iOS
-    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setIsIOS(iOS);
-
-    // Check if already installed
-    const standalone = window.matchMedia('(display-mode: standalone)').matches || 
-                      (window.navigator as any).standalone === true;
-    setIsStandalone(standalone);
-
-    // Listen for PWA install prompt
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setIsInstallable(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
+    let id = localStorage.getItem("kp_device_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("kp_device_id", id);
+    }
+    setDeviceId(id);
+    const savedSound = localStorage.getItem("sound_enabled");
+    if (savedSound !== null) setSoundEnabled(savedSound === "true");
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
   }, []);
 
-  const handleInstallClick = async () => {
-    if (isIOS) {
-      // Show iOS instructions toast
-      toast.info("Install on iOS", {
-        description: "Tap the Share button and select 'Add to Home Screen'",
-        duration: 6000,
-      });
-      return;
-    }
-
-    if (!deferredPrompt) {
-      toast.error("Installation not available", {
-        description: "Your browser doesn't support app installation or it's already installed.",
-      });
-      return;
-    }
-
-    // Show the install prompt
-    deferredPrompt.prompt();
-
-    // Wait for the user to respond
-    const { outcome } = await deferredPrompt.userChoice;
-
-    if (outcome === 'accepted') {
-      toast.success("App installed successfully! 🎉", {
-        description: "You can now access TempMail from your home screen",
-      });
-      setIsInstallable(false);
-    } else {
-      toast.info("Installation cancelled");
-    }
-
-    // Clear the deferred prompt
-    setDeferredPrompt(null);
-  };
-
-  const generateMath = useCallback(() => {
-    const n1 = Math.floor(Math.random() * 12) + 5;
-    const n2 = Math.floor(Math.random() * 8) + 2;
-    setMathProblem({ q: `${n1} + ${n2}`, a: n1 + n2 });
-    setUserAnswer("");
-  }, []);
-
-  const updateStats = useCallback(() => {
-    const today = new Date().toDateString();
-    const stored = JSON.parse(localStorage.getItem("email_limit") || '{"date": "", "count": 0}');
-    setUsage({ count: stored.date === today ? stored.count : 0, resetIn: "24h" });
-  }, []);
-
-  useEffect(() => {
-    updateStats();
-  }, [updateStats]);
-
-  const { data: emails = [], refetch, isFetching } = useQuery({
-    queryKey: ["emails", currentEmail],
+  const { data: allEmails = [], refetch, isFetching } = useQuery({
+    queryKey: ["emails", currentEmail, deviceId],
     queryFn: async () => {
+      if (!currentEmail || !deviceId) return [];
       const res = await fetch(`${WORKER_URL}/messages?email=${currentEmail}`, {
-        headers: { "Authorization": `Bearer ${API_TOKEN}` }
+        headers: { 
+          "Authorization": `Bearer ${API_TOKEN}`, 
+          "X-Device-ID": deviceId, 
+          "Accept": "application/json" 
+        }
       });
-      return res.json();
+      if (!res.ok) {
+        if (res.status === 403) toast.error("Access Forbidden - Hardware Mismatch");
+        throw new Error("Connection Interrupted");
+      }
+      const data = await res.json();
+      if (data.length > prevEmailCount.current && soundEnabled && prevEmailCount.current > 0) {
+        toast.success("New Message Received! 🔔");
+      }
+      prevEmailCount.current = data.length;
+      return data;
     },
-    enabled: !!currentEmail,
+    enabled: !!currentEmail && !!deviceId,
     refetchInterval: 10000,
   });
 
-  const handleCopy = useCallback(() => {
-    if (!currentEmail) return;
-    navigator.clipboard.writeText(currentEmail);
-    setIsCopied(true);
-    toast.success("Copied to clipboard", {
-      description: currentEmail,
-      icon: <CheckCircle2 className="h-4 w-4 text-green-500" />
-    });
-    setTimeout(() => setIsCopied(false), 2000);
-  }, [currentEmail]);
+  // Filter out deleted emails
+  const emails = allEmails.filter(email => !deletedEmails.has(email.id));
 
-  const handleAttempt = (type: 'manual' | 'random') => {
+  const handleDeleteEmail = (emailId: string) => {
+    setDeletedEmails(prev => new Set([...prev, emailId]));
+  };
+
+  useEffect(() => {
+    if (!emailCreatedAt) return;
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - emailCreatedAt) / 1000);
+      const remaining = Math.max(0, EMAIL_LIFETIME - elapsed);
+      setTimeRemaining(remaining);
+      if (remaining <= 0) {
+        setCurrentEmail("");
+        setEmailCreatedAt(null);
+        setDeletedEmails(new Set());
+        toast.error("Session expired - All data purged");
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [emailCreatedAt]);
+
+  const onAttempt = (type: 'manual' | 'random') => {
     if (type === 'manual' && customPrefix.length < 3) {
-      toast.error("Prefix must be at least 3 characters");
-      return;
+      return toast.error("Alias must be at least 3 characters");
     }
-    generateMath();
+    const n1 = Math.floor(Math.random() * 12) + 6;
+    const n2 = Math.floor(Math.random() * 8) + 3;
+    setMathProblem({ q: `${n1} + ${n2}`, a: n1 + n2 });
+    setUserAnswer("");
     setPendingType(type);
     setShowCaptcha(true);
   };
 
-  const handleVerifyAndCreate = async () => {
+  const handleVerifyAndCreate = () => {
     if (parseInt(userAnswer) !== mathProblem.a) {
-      toast.error("Incorrect answer. Please try again.");
-      generateMath();
-      return;
+      return toast.error("Incorrect answer - Please try again");
     }
-    const today = new Date().toDateString();
-    const stored = JSON.parse(localStorage.getItem("email_limit") || '{"count": 0}');
-    const prefix = pendingType === 'random' ? Math.random().toString(36).substring(2, 8) : customPrefix.toLowerCase().trim();
-    localStorage.setItem("email_limit", JSON.stringify({ date: today, count: (stored.date === today ? stored.count : 0) + 1 }));
-    await queryClient.cancelQueries({ queryKey: ["emails"] });
+    const prefix = pendingType === 'random' 
+      ? Math.random().toString(36).substring(2, 12) 
+      : customPrefix.toLowerCase().trim();
     setCurrentEmail(`${prefix}@pandeykapil.com.np`);
+    setEmailCreatedAt(Date.now());
+    prevEmailCount.current = 0;
+    setDeletedEmails(new Set());
     setShowCaptcha(false);
-    setCustomPrefix("");
-    updateStats();
-    toast.success("🎉 Temporary email created!", {
-      description: "Your secure inbox is ready"
-    });
+    toast.success("Email address activated!");
   };
 
-  const handleDeleteEmail = useCallback(async () => {
-    if (!currentEmail) return;
-    
-    try {
-      await fetch(`${WORKER_URL}/messages?email=${currentEmail}`, {
-        method: 'DELETE',
-        headers: { "Authorization": `Bearer ${API_TOKEN}` }
-      });
-      
-      setCurrentEmail("");
-      queryClient.removeQueries({ queryKey: ["emails"] });
-      toast.success("Email deleted successfully");
-    } catch (error) {
-      toast.error("Failed to delete email");
-    }
-  }, [currentEmail, queryClient]);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 text-slate-900 selection:bg-blue-200 pb-10 relative overflow-hidden">
-      {/* Animated Background Elements */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        {floatingElements.map((el) => (
-          <div
-            key={el.id}
-            className="absolute w-2 h-2 bg-blue-400/20 rounded-full animate-float"
-            style={{
-              left: `${el.x}%`,
-              top: `${el.y}%`,
-              animationDelay: `${el.delay}s`,
-              animationDuration: `${15 + Math.random() * 10}s`
-            }}
-          />
-        ))}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30 text-slate-900 selection:bg-blue-100">
+      
+      {/* Decorative Background */}
+      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/3 rounded-full blur-3xl" />
       </div>
 
-      {/* Gradient Orbs */}
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDuration: '4s'}} />
-      <div className="fixed bottom-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl animate-pulse" style={{animationDuration: '6s'}} />
-
-      {/* NAV */}
-      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200/50 shadow-sm">
-        <div className="container mx-auto px-4 h-16 md:h-20 flex justify-between items-center">
-          <div className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="absolute inset-0 bg-blue-600 blur-lg opacity-50 group-hover:opacity-75 transition-opacity rounded-xl" />
-              <div className="relative bg-gradient-to-br from-blue-600 to-indigo-600 p-2 md:p-2.5 rounded-xl shadow-lg transform group-hover:scale-110 transition-transform">
-                <Zap className="w-4 h-4 md:w-6 md:h-6 text-white" />
+      {/* Navigation */}
+      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="flex items-center justify-between h-20 lg:h-24">
+            {/* Logo */}
+            <div className="flex items-center gap-3 lg:gap-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-blue-600 blur-xl opacity-30 rounded-2xl" />
+                <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 p-2.5 lg:p-3 rounded-2xl shadow-xl">
+                  <Zap className="w-6 h-6 lg:w-7 lg:h-7 text-blue-400" />
+                </div>
+              </div>
+              <div>
+                <h1 className="text-2xl lg:text-3xl font-black tracking-tight">GhostMail</h1>
+                <p className="text-xs font-bold text-blue-600 tracking-wider">v5.8 Alpha</p>
               </div>
             </div>
-            <span className="text-lg md:text-2xl font-black uppercase tracking-tighter bg-gradient-to-r from-slate-900 to-blue-600 bg-clip-text text-transparent">
-              Temp<span className="text-blue-600">Mail</span>
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Install Button - Only show if not installed */}
-            {!isStandalone && (
-              <Button
-                onClick={handleInstallClick}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 md:px-6 py-2 rounded-xl text-xs md:text-sm font-black shadow-lg shadow-purple-500/30 transform hover:scale-105 transition-all flex items-center gap-2"
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 lg:gap-4">
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => { 
+                  const ns = !soundEnabled; 
+                  setSoundEnabled(ns); 
+                  localStorage.setItem("sound_enabled", String(ns)); 
+                  toast.info(ns ? "Sound enabled" : "Sound disabled"); 
+                }}
+                className="rounded-xl h-11 w-11 border border-slate-200 hover:border-slate-300"
               >
-                {isIOS ? <Apple className="w-4 h-4" /> : <Download className="w-4 h-4" />}
-                <span className="hidden sm:inline">Install App</span>
-                <span className="sm:hidden">Install</span>
+                {soundEnabled ? (
+                  <Volume2 size={20} className="text-blue-600" />
+                ) : (
+                  <VolumeX size={20} className="text-slate-400" />
+                )}
               </Button>
-            )}
-            
-            <div className="hidden md:flex items-center gap-2 bg-green-50 text-green-700 px-4 py-2 rounded-xl text-xs font-bold border border-green-200">
-              <Shield className="w-4 h-4" />
-              <span>Encrypted</span>
-            </div>
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 md:px-6 py-2 rounded-xl text-[9px] md:text-[11px] font-black border border-blue-200 tracking-widest uppercase shadow-lg shadow-blue-500/30">
-              100% Free
+              
+              <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl shadow-lg">
+                <Fingerprint size={16} className="text-blue-400" />
+                <span className="text-xs font-bold tracking-wide">Device Locked</span>
+              </div>
             </div>
           </div>
         </div>
       </nav>
 
-      <main className="container mx-auto px-4 max-w-6xl pt-8 md:pt-16 relative z-10">
-        {/* HERO */}
-        <div className="text-center space-y-6 mb-16 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-          <div className="inline-flex items-center gap-2 bg-white/60 backdrop-blur-sm px-6 py-3 rounded-full border border-blue-200 shadow-lg mb-4">
-            <Sparkles className="w-4 h-4 text-blue-600 animate-pulse" />
-            <span className="text-sm font-bold text-slate-700">Your Privacy Guardian</span>
-          </div>
-          
-          <h1 className="text-5xl md:text-8xl lg:text-9xl font-black tracking-tighter leading-none">
-            <span className="bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent">
-              Digital
-            </span>
-            <br />
-            <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-gradient">
-              Invisibility
-            </span>
-          </h1>
-          
-          <p className="text-slate-600 font-medium text-base md:text-xl max-w-2xl mx-auto leading-relaxed">
-            Create disposable email addresses instantly. No sign-up. No tracking. 
-            <span className="block mt-2 font-black text-slate-900">Powered by <span className="text-blue-600">pandeykapil.com.np</span></span>
-          </p>
+      {/* Main Content */}
+      <main className="container mx-auto px-6 lg:px-12 py-12 lg:py-20 max-w-7xl">
+        
+        {/* Hero Section */}
+        {!currentEmail && (
+          <section className="text-center mb-16 lg:mb-24 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-full text-blue-700 text-xs font-bold mb-8 lg:mb-12">
+              <Sparkles className="w-4 h-4" />
+              Military-Grade Privacy Infrastructure
+            </div>
+            
+            {/* Main Heading */}
+            <h2 className="text-5xl md:text-7xl lg:text-8xl xl:text-9xl font-black tracking-tight mb-6 lg:mb-8">
+              Ghost <span className="text-blue-600">Identity</span>
+            </h2>
+            
+            {/* Subheading */}
+            <p className="text-lg md:text-xl lg:text-2xl text-slate-600 max-w-4xl mx-auto leading-relaxed mb-8 lg:mb-12">
+              Create disposable email addresses instantly on{" "}
+              <span className="font-bold text-slate-900">pandeykapil.com.np</span>.
+              <br className="hidden md:block" />
+              Built for total anonymity and digital privacy.
+            </p>
 
-          {/* Feature Pills */}
-          <div className="flex flex-wrap justify-center gap-3 pt-4">
-            <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-200 shadow-sm">
-              <Lock className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-bold">Zero Tracking</span>
+            {/* Feature Pills */}
+            <div className="flex flex-wrap justify-center gap-3 lg:gap-4">
+              <FeatureBadge icon={<Shield size={16} />} text="Zero Tracking" />
+              <FeatureBadge icon={<Cpu size={16} />} text="Edge Computing" />
+              <FeatureBadge icon={<Activity size={16} />} text="Real-time Sync" />
+              <FeatureBadge icon={<Lock size={16} />} text="AES-256 Encrypted" />
             </div>
-            <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-200 shadow-sm">
-              <Timer className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-bold">5-Min Auto-Delete</span>
-            </div>
-            <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-200 shadow-sm">
-              <ShieldCheck className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-bold">CAPTCHA Protected</span>
-            </div>
-          </div>
-        </div>
+          </section>
+        )}
 
-        {/* GENERATOR */}
-        <div className="relative group mb-16 animate-in fade-in slide-in-from-bottom-8 duration-1000" style={{animationDelay: '200ms'}}>
-          <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[2.8rem] blur-xl opacity-20 group-hover:opacity-30 transition-opacity" />
-          <div className="relative bg-white p-3 rounded-[2.5rem] shadow-2xl border border-slate-100">
-            <div className="bg-gradient-to-br from-slate-50 to-blue-50 p-6 md:p-12 rounded-[2.2rem] flex flex-col lg:flex-row gap-4 items-center">
-              <div className="flex-1 w-full relative">
-                <Input 
-                  placeholder="your-custom-name" 
-                  value={customPrefix}
-                  onChange={(e) => setCustomPrefix(e.target.value.replace(/[^a-z0-9]/g, ''))}
-                  maxLength={20}
-                  className="h-16 md:h-20 text-lg md:text-xl pl-6 pr-12 rounded-2xl bg-white border-2 border-slate-200 shadow-sm focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all font-medium"
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium text-sm hidden md:block">
-                  @pandeykapil.com.np
-                </div>
-              </div>
-              <div className="flex gap-3 w-full lg:w-auto">
-                <Button 
-                  onClick={() => handleAttempt('manual')} 
-                  disabled={customPrefix.length < 3}
-                  className="h-16 md:h-20 flex-1 lg:px-12 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-lg shadow-lg shadow-blue-500/30 transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Mail className="w-5 h-5 mr-2" />
-                  Create
-                </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={() => handleAttempt('random')} 
-                  className="h-16 w-16 md:h-20 md:w-20 rounded-2xl border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-blue-500 shadow-lg transform hover:scale-105 transition-all"
-                >
-                  <Dice5 className="w-6 h-6 text-blue-600" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Alias Generator */}
+        <AliasGenerator 
+          customPrefix={customPrefix} 
+          setCustomPrefix={setCustomPrefix} 
+          onAttempt={onAttempt} 
+          disabled={!!currentEmail} 
+        />
 
-        {/* ACTIVE INBOX */}
+        {/* Active Session */}
         {currentEmail && (
-          <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 mb-20">
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[3.2rem] blur-xl opacity-20 group-hover:opacity-30 transition-opacity" />
-              <div className="relative bg-white rounded-[3rem] border border-slate-100 shadow-2xl overflow-hidden">
-                {/* Header */}
-                <div className="p-6 md:p-10 bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 text-white relative overflow-hidden">
-                  {/* Animated background pattern */}
-                  <div className="absolute inset-0 opacity-10">
-                    <div className="absolute top-0 left-0 w-40 h-40 bg-blue-400 rounded-full blur-3xl animate-pulse" />
-                    <div className="absolute bottom-0 right-0 w-40 h-40 bg-indigo-400 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}} />
-                  </div>
-
-                  <div className="relative flex flex-col md:flex-row justify-between items-center gap-6">
-                    <div className="text-center md:text-left flex-1 min-w-0 w-full">
-                      <div className="flex items-center justify-center md:justify-start gap-2 mb-3">
-                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-300">
-                          Identity Shield Active
-                        </span>
-                      </div>
-                      
-                      <div 
-                        className="flex items-center justify-center md:justify-start gap-3 group/email cursor-pointer bg-white/10 backdrop-blur-sm rounded-2xl p-4 hover:bg-white/20 transition-all" 
-                        onClick={handleCopy}
-                      >
-                        <p className="text-lg md:text-3xl font-mono font-bold break-all group-hover/email:text-blue-300 transition-colors">
-                          {currentEmail}
-                        </p>
-                        <div className="bg-white/10 p-2.5 rounded-xl group-hover/email:bg-blue-500 transition-all shrink-0">
-                          {isCopied ? 
-                            <Check className="w-5 h-5 text-green-400" /> : 
-                            <Copy className="w-5 h-5" />
-                          }
+          <div className="animate-in fade-in slide-in-from-bottom-12 duration-700 mb-16 lg:mb-24">
+            <div className="bg-white rounded-3xl lg:rounded-[3rem] shadow-[0_20px_70px_-10px_rgba(0,0,0,0.1)] border border-slate-200/60 overflow-hidden">
+              
+              {/* Session Header */}
+              <div className="p-6 lg:p-12 bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-8 lg:gap-12">
+                  
+                  {/* Session Info */}
+                  <div className="flex-1 w-full space-y-6 lg:space-y-8">
+                    {/* Stats */}
+                    <div className="flex flex-wrap gap-4 lg:gap-6">
+                      {/* Timer */}
+                      <div className="flex items-center gap-3 lg:gap-4 px-4 lg:px-6 py-3 lg:py-4 bg-white/5 backdrop-blur-md rounded-2xl border border-white/10">
+                        <Timer 
+                          size={24} 
+                          className={timeRemaining < 60 ? "text-red-400 animate-pulse" : "text-blue-400"} 
+                        />
+                        <div>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-wide mb-1">
+                            Time Left
+                          </p>
+                          <p className="font-mono text-2xl lg:text-3xl font-black">
+                            {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
+                          </p>
                         </div>
                       </div>
 
-                      <p className="text-xs text-blue-200 mt-3 font-medium">
-                        Auto-deletes in 5 minutes • Click to copy
+                      {/* Status */}
+                      <div className="flex items-center gap-3 lg:gap-4 px-4 lg:px-6 py-3 lg:py-4 bg-emerald-500/10 backdrop-blur-md rounded-2xl border border-emerald-500/20">
+                        <Activity size={24} className="text-emerald-400 animate-pulse" />
+                        <div>
+                          <p className="text-xs text-emerald-300 font-bold uppercase tracking-wide mb-1">
+                            Status
+                          </p>
+                          <p className="text-xl lg:text-2xl font-black text-emerald-400">
+                            Active
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Message Count */}
+                      <div className="flex items-center gap-3 lg:gap-4 px-4 lg:px-6 py-3 lg:py-4 bg-blue-500/10 backdrop-blur-md rounded-2xl border border-blue-500/20">
+                        <InboxIcon size={24} className="text-blue-400" />
+                        <div>
+                          <p className="text-xs text-blue-300 font-bold uppercase tracking-wide mb-1">
+                            Messages
+                          </p>
+                          <p className="text-xl lg:text-2xl font-black text-blue-400">
+                            {emails.length}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Email Address */}
+                    <div 
+                      className="cursor-pointer group"
+                      onClick={() => { 
+                        navigator.clipboard.writeText(currentEmail); 
+                        toast.success("Email address copied!"); 
+                        setIsCopied(true); 
+                        setTimeout(() => setIsCopied(false), 2000); 
+                      }}
+                    >
+                      <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-3">
+                        Your Temporary Address
                       </p>
-                    </div>
-                    
-                    <div className="flex gap-3 shrink-0">
-                      <Button 
-                        onClick={() => refetch()} 
-                        className="bg-blue-600 hover:bg-blue-500 h-14 px-6 rounded-2xl font-black shadow-lg transform hover:scale-105 transition-all"
-                      >
-                        <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} /> 
-                        Refresh
-                      </Button>
-                      
-                      <Button 
-                        onClick={handleDeleteEmail}
-                        variant="outline"
-                        className="bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white h-14 px-6 rounded-2xl font-black shadow-lg transform hover:scale-105 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </Button>
+                      <div className="flex items-center gap-4 lg:gap-6">
+                        <p className="text-2xl md:text-3xl lg:text-5xl xl:text-6xl font-mono font-black tracking-tight group-hover:text-blue-400 transition-colors break-all flex-1">
+                          {currentEmail}
+                        </p>
+                        <div className="flex-shrink-0">
+                          {isCopied ? (
+                            <div className="p-3 lg:p-4 bg-emerald-500/20 rounded-2xl">
+                              <Check size={28} className="text-emerald-400" />
+                            </div>
+                          ) : (
+                            <div className="p-3 lg:p-4 bg-white/5 group-hover:bg-blue-600 rounded-2xl transition-all">
+                              <Copy size={28} className="text-white/40 group-hover:text-white transition-colors" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                {/* Inbox Content */}
-                <div className="p-6 md:p-10">
-                  <Inbox emails={emails} onDeleteEmail={() => {}} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {/* PWA INSTALLATION SECTION */}
-        {!currentEmail && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-20 animate-in fade-in slide-in-from-bottom-8 duration-1000" style={{animationDelay: '600ms'}}>
-            {/* PWA Promo with Install Button */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-[3rem] p-10 md:p-14 text-white shadow-2xl">
-              <div className="absolute top-0 right-0 p-8 opacity-20">
-                <Smartphone className="w-64 h-64 rotate-12" />
-              </div>
-              <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxIDEuNzktNCA0LTRzNCAxLjc5IDQgNC0xLjc5IDQtNCA0LTQtMS43OS00LTR6bTAgMTJjMC0yLjIxIDEuNzktNCA0LTRzNCAxLjc5IDQgNC0xLjc5IDQtNCA0LTQtMS43OS00LTR6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-10" />
-              
-              <div className="relative z-10 flex flex-col justify-center h-full">
-                <h3 className="text-4xl md:text-5xl font-black tracking-tighter mb-6 leading-none">
-                  Use it like<br />a <span className="italic">Pro App</span>
-                </h3>
-                <p className="text-blue-100 font-medium mb-8 leading-relaxed text-lg">
-                  Install <span className="font-black text-white">TempMail</span> on your device for instant, offline access
-                </p>
-                
-                {/* Install Button */}
-                {!isStandalone && (
-                  <Button
-                    onClick={handleInstallClick}
-                    className="bg-white text-blue-600 hover:bg-blue-50 h-16 px-8 rounded-2xl font-black text-lg shadow-2xl transform hover:scale-105 transition-all mb-6 flex items-center justify-center gap-3"
+                  {/* Refresh Button */}
+                  <Button 
+                    onClick={() => refetch()} 
+                    className="w-full xl:w-auto h-14 lg:h-16 px-8 lg:px-12 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base lg:text-lg shadow-xl hover:shadow-2xl active:scale-95 transition-all"
                   >
-                    {isIOS ? (
-                      <>
-                        <Apple className="w-6 h-6" />
-                        View Instructions
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-6 h-6" />
-                        Install Now
-                      </>
-                    )}
+                    <RefreshCw className={`w-5 h-5 lg:w-6 lg:h-6 mr-3 ${isFetching ? "animate-spin" : ""}`} />
+                    Refresh
                   </Button>
-                )}
-
-                {isStandalone && (
-                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/20 mb-6">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-6 h-6 text-green-300" />
-                      <span className="font-bold">App already installed!</span>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex gap-4">
-                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/20 hover:bg-white/30 transition-all">
-                    <ShieldCheck className="w-6 h-6" />
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/20 hover:bg-white/30 transition-all">
-                    <Zap className="w-6 h-6" />
-                  </div>
-                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/20 hover:bg-white/30 transition-all">
-                    <Timer className="w-6 h-6" />
-                  </div>
                 </div>
+              </div>
+
+              {/* Inbox */}
+              <div className="p-6 lg:p-12">
+                <Inbox 
+                  emails={emails} 
+                  isFetching={isFetching}
+                  onDeleteEmail={handleDeleteEmail}
+                />
               </div>
             </div>
-
-            {/* Installation Steps - Only show for iOS */}
-            {isIOS && (
-              <div className="bg-white rounded-[3rem] p-10 md:p-12 border border-slate-100 shadow-xl flex flex-col justify-center">
-                <h4 className="text-sm font-black mb-10 uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                  <Apple className="w-5 h-5" />
-                  Install on iPhone
-                </h4>
-                <div className="space-y-6">
-                  <div className="flex items-start gap-6 group hover:translate-x-2 transition-transform">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center font-black text-white shadow-lg shrink-0">
-                      1
-                    </div>
-                    <div className="flex-1 pt-2">
-                      <p className="font-bold text-slate-900 mb-1">Tap the Share button</p>
-                      <p className="text-sm text-slate-500">Look for <Share className="w-4 h-4 inline mx-1 text-blue-600" /> at the bottom of Safari</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start gap-6 group hover:translate-x-2 transition-transform">
-                    <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl flex items-center justify-center font-black text-white shadow-lg shrink-0">
-                      2
-                    </div>
-                    <div className="flex-1 pt-2">
-                      <p className="font-bold text-slate-900 mb-1">Add to Home Screen</p>
-                      <p className="text-sm text-slate-500">Tap <PlusSquare className="w-4 h-4 inline mx-1 text-indigo-600" /> in the menu</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start gap-6 group hover:translate-x-2 transition-transform">
-                    <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center font-black text-white shadow-lg shrink-0">
-                      3
-                    </div>
-                    <div className="flex-1 pt-2">
-                      <p className="font-bold text-slate-900 mb-1">Confirm installation</p>
-                      <p className="text-sm text-slate-500">Tap <span className="font-bold text-purple-600">Add</span> in the top right corner</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Android/Desktop - Show feature cards instead */}
-            {!isIOS && (
-              <div className="bg-white rounded-[3rem] p-10 md:p-12 border border-slate-100 shadow-xl">
-                <h4 className="text-sm font-black mb-8 uppercase tracking-widest text-slate-400">
-                  Why Install?
-                </h4>
-                <div className="space-y-6">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
-                      <Zap className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-slate-900 mb-1">Lightning Fast Access</h5>
-                      <p className="text-sm text-slate-600">Launch instantly from your home screen or app drawer</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center shrink-0">
-                      <Shield className="w-6 h-6 text-indigo-600" />
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-slate-900 mb-1">Works Offline</h5>
-                      <p className="text-sm text-slate-600">Access your temporary emails even without internet</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center shrink-0">
-                      <Smartphone className="w-6 h-6 text-purple-600" />
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-slate-900 mb-1">Native App Experience</h5>
-                      <p className="text-sm text-slate-600">Full-screen mode with no browser UI distractions</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
-        {/* FEATURES GRID */}
+        {/* Features Section */}
         {!currentEmail && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16 animate-in fade-in slide-in-from-bottom-8 duration-1000" style={{animationDelay: '400ms'}}>
-            <div className="group relative bg-white rounded-3xl p-8 border border-slate-100 shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative">
-                <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Shield className="w-7 h-7 text-blue-600" />
-                </div>
-                <h3 className="text-xl font-black mb-2">Military-Grade Security</h3>
-                <p className="text-slate-600 leading-relaxed">CAPTCHA verification and encrypted connections protect your privacy</p>
-              </div>
-            </div>
-
-            <div className="group relative bg-white rounded-3xl p-8 border border-slate-100 shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
-              <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative">
-                <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Zap className="w-7 h-7 text-indigo-600" />
-                </div>
-                <h3 className="text-xl font-black mb-2">Instant Creation</h3>
-                <p className="text-slate-600 leading-relaxed">Generate temporary emails in seconds without any registration</p>
-              </div>
-            </div>
-
-            <div className="group relative bg-white rounded-3xl p-8 border border-slate-100 shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="relative">
-                <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Timer className="w-7 h-7 text-purple-600" />
-                </div>
-                <h3 className="text-xl font-black mb-2">Auto-Delete</h3>
-                <p className="text-slate-600 leading-relaxed">Messages automatically vanish after 5 minutes for maximum privacy</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* VERIFICATION MODAL */}
-        {showCaptcha && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xl animate-in fade-in duration-300">
-            <div className="relative bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in duration-300">
-              <button 
-                onClick={() => setShowCaptcha(false)} 
-                className="absolute top-6 right-6 text-slate-400 hover:text-slate-900 hover:bg-slate-100 p-2 rounded-xl transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
+          <section className="mb-16 lg:mb-24">
+            <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
               
-              <div className="text-center space-y-6">
-                <div className="inline-flex p-5 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl shadow-2xl shadow-blue-500/30">
-                  <LockKeyhole className="w-10 h-10 text-white" />
-                </div>
-                
+              {/* Left Column - Text */}
+              <div className="space-y-8 animate-in fade-in slide-in-from-left-8 duration-700">
                 <div>
-                  <h3 className="text-3xl font-black tracking-tight mb-2">Security Check</h3>
-                  <p className="text-slate-500 font-medium">Verify you're human to continue</p>
-                </div>
-                
-                <div className="bg-gradient-to-br from-slate-900 to-blue-900 p-8 rounded-3xl space-y-6 shadow-xl">
-                  <div className="text-4xl font-mono font-black text-blue-400 tracking-widest animate-in zoom-in duration-500">
-                    {mathProblem.q} = ?
+                  <div className="inline-flex p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/30 mb-6">
+                    <Shield size={32} className="text-white" />
                   </div>
-                  <Input 
-                    type="number" 
-                    autoFocus 
-                    value={userAnswer} 
-                    onChange={(e) => setUserAnswer(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleVerifyAndCreate()}
-                    className="w-full h-16 text-center text-3xl font-black bg-slate-800/50 border-2 border-blue-500/30 text-white rounded-2xl focus:ring-4 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-                    placeholder="?"
+                  <h3 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight mb-6">
+                    Total <span className="text-blue-600">Privacy</span>
+                  </h3>
+                  <p className="text-lg lg:text-xl text-slate-600 leading-relaxed">
+                    Traditional email is a tracking beacon. GhostMail destroys the trace. 
+                    Every message is isolated to volatile memory that evaporates when your session ends.
+                  </p>
+                </div>
+
+                {/* Feature Grid */}
+                <div className="grid sm:grid-cols-2 gap-4 lg:gap-6">
+                  <FeatureCard 
+                    icon={<Terminal size={24} />}
+                    title="Zero Persistence"
+                    description="No physical disk storage utilized"
+                  />
+                  <FeatureCard 
+                    icon={<Globe size={24} />}
+                    title="Global Mesh"
+                    description="20ms maximum response latency"
+                  />
+                  <FeatureCard 
+                    icon={<Lock size={24} />}
+                    title="AES-256 Tunneling"
+                    description="Military-grade encryption"
+                  />
+                  <FeatureCard 
+                    icon={<Layers size={24} />}
+                    title="Edge Computing"
+                    description="Distributed infrastructure"
                   />
                 </div>
-                
-                <Button 
-                  onClick={handleVerifyAndCreate} 
-                  className="w-full h-16 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-lg shadow-xl shadow-blue-500/30 transform hover:scale-105 transition-all"
-                >
-                  <CheckCircle2 className="w-5 h-5 mr-2" />
-                  Verify & Continue
-                </Button>
-                
-                <p className="text-xs text-slate-400">
-                  This helps us prevent spam and abuse
-                </p>
+              </div>
+
+              {/* Right Column - Visual */}
+              <div className="relative animate-in fade-in slide-in-from-right-8 duration-700">
+                <div className="absolute -inset-8 bg-blue-500/10 rounded-full blur-3xl" />
+                <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 lg:p-12 border border-white/10 shadow-2xl">
+                  <div className="space-y-6 lg:space-y-8">
+                    <SecurityMetric 
+                      label="Encryption Level"
+                      value="AES-256"
+                      color="blue"
+                    />
+                    <SecurityMetric 
+                      label="Session Lifetime"
+                      value="5 Minutes"
+                      color="emerald"
+                    />
+                    <SecurityMetric 
+                      label="Data Recovery"
+                      value="0% Possible"
+                      color="red"
+                    />
+                    <SecurityMetric 
+                      label="Tracker Blocking"
+                      value="100% Active"
+                      color="indigo"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
         )}
-      </main>
-      
-      <Footer />
 
-      <style jsx>{`
-        @keyframes float {
-          0%, 100% {
-            transform: translateY(0px) translateX(0px);
-          }
-          33% {
-            transform: translateY(-20px) translateX(10px);
-          }
-          66% {
-            transform: translateY(-10px) translateX(-10px);
-          }
-        }
-        
-        @keyframes gradient {
-          0%, 100% {
-            background-position: 0% 50%;
-          }
-          50% {
-            background-position: 100% 50%;
-          }
-        }
-        
-        .animate-float {
-          animation: float ease-in-out infinite;
-        }
-        
-        .animate-gradient {
-          background-size: 200% 200%;
-          animation: gradient 3s ease infinite;
-        }
-      `}</style>
+        {/* PWA Installation Section */}
+        {!currentEmail && (
+          <section className="mb-16 lg:mb-24">
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 lg:p-12 shadow-lg">
+              
+              {/* Header */}
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8 mb-12">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-lg text-blue-700 text-xs font-bold mb-4">
+                    <Smartphone size={14} />
+                    Progressive Web App
+                  </div>
+                  <h3 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight mb-4">
+                    Install <span className="text-blue-600">GhostMail</span>
+                  </h3>
+                  <p className="text-lg text-slate-600 max-w-2xl">
+                    Add GhostMail to your home screen for instant access as a native app
+                  </p>
+                </div>
+              </div>
+
+              {/* Installation Steps */}
+              <div className="grid md:grid-cols-3 gap-6 lg:gap-8 mb-8">
+                <InstallStep 
+                  num="1" 
+                  icon={<Share size={24} />}
+                  title="Tap Share" 
+                  description="Find the share icon in Safari's toolbar"
+                />
+                <InstallStep 
+                  num="2" 
+                  icon={<PlusSquare size={24} />}
+                  title="Add to Home" 
+                  description="Select 'Add to Home Screen' from menu"
+                />
+                <InstallStep 
+                  num="3" 
+                  icon={<CheckCircle2 size={24} />}
+                  title="Launch" 
+                  description="Open GhostMail as a native app"
+                />
+              </div>
+
+              {/* CTA Banner */}
+              <div className="p-6 lg:p-8 bg-slate-900 rounded-2xl text-white flex flex-col sm:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-blue-600 rounded-xl">
+                    <Smartphone size={28} />
+                  </div>
+                  <p className="text-lg lg:text-xl font-bold">
+                    Optimized for iOS & Android
+                  </p>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  className="h-12 px-6 rounded-xl border border-white/20 text-white hover:bg-white hover:text-slate-900 font-bold"
+                >
+                  Learn More
+                  <ChevronRight size={18} className="ml-2" />
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* FAQ Section */}
+        {!currentEmail && (
+          <section className="mb-16 lg:mb-24">
+            <div className="text-center mb-12 lg:mb-16">
+              <h3 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight mb-4">
+                Frequently Asked <span className="text-blue-600">Questions</span>
+              </h3>
+              <p className="text-lg text-slate-600">
+                Everything you need to know about GhostMail
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6 lg:gap-8 max-w-6xl mx-auto">
+              <FAQCard 
+                question="Why use GhostMail?"
+                answer="GhostMail uses hardware-isolated sessions that are physically locked to your device. Not even our engineers can access your messages. All data is stored in volatile memory and permanently deleted after 5 minutes."
+              />
+              <FAQCard 
+                question="How long do emails last?"
+                answer="Messages are stored for exactly 5 minutes in ephemeral RAM. After expiration, memory pointers are overwritten and data is purged with 0% recoverability."
+              />
+              <FAQCard 
+                question="Is it good for OTPs?"
+                answer="Yes! We maintain premium TLD relay nodes with 99.8% deliverability for OTP codes, social signups, and verification emails from global platforms."
+              />
+              <FAQCard 
+                question="Can developers use this?"
+                answer="Absolutely. GhostMail is free, ad-free, and provides high-performance infrastructure for developers, security researchers, and privacy enthusiasts."
+              />
+            </div>
+          </section>
+        )}
+
+      </main>
+
+      {/* Security Modal */}
+      {showCaptcha && (
+        <SecurityModal 
+          mathProblem={mathProblem} 
+          userAnswer={userAnswer} 
+          setUserAnswer={setUserAnswer} 
+          onVerify={handleVerifyAndCreate} 
+          onClose={() => setShowCaptcha(false)} 
+        />
+      )}
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200 bg-white/50 backdrop-blur-sm mt-20">
+        <div className="container mx-auto px-6 lg:px-12 py-12 lg:py-16 max-w-7xl">
+          
+          {/* Footer Content */}
+          <div className="grid md:grid-cols-4 gap-12 mb-12">
+            {/* Brand */}
+            <div className="md:col-span-2 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-2 rounded-xl">
+                  <Zap className="w-6 h-6 text-blue-400" />
+                </div>
+                <span className="text-2xl font-black">GhostMail</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed max-w-md">
+                World-class temporary email infrastructure on{" "}
+                <span className="font-bold text-slate-900">pandeykapil.com.np</span>. 
+                Privacy infrastructure for the next generation.
+              </p>
+            </div>
+
+            {/* Links - Technical */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Technical
+              </h4>
+              <ul className="space-y-2 text-slate-600">
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Edge Relay Mesh
+                </li>
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Volatile Memory
+                </li>
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Hardware Lock
+                </li>
+              </ul>
+            </div>
+
+            {/* Links - Legal */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Legal
+              </h4>
+              <ul className="space-y-2 text-slate-600">
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Privacy Policy
+                </li>
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Terms of Service
+                </li>
+                <li className="hover:text-blue-600 transition-colors cursor-pointer">
+                  Contact
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Copyright */}
+          <div className="pt-8 border-t border-slate-200">
+            <p className="text-sm text-slate-500 text-center">
+              © 2026 GhostMail Infrastructure • Powered by pandeykapil.com.np
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
+
+// --- HELPER COMPONENTS ---
+
+const FeatureBadge = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
+  <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition-colors">
+    <div className="text-blue-600">{icon}</div>
+    <span className="text-sm font-bold text-slate-700">{text}</span>
+  </div>
+);
+
+const FeatureCard = ({ 
+  icon, 
+  title, 
+  description 
+}: { 
+  icon: React.ReactNode; 
+  title: string; 
+  description: string;
+}) => (
+  <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-lg hover:border-blue-300 transition-all group">
+    <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+      {icon}
+    </div>
+    <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
+    <p className="text-sm text-slate-600">{description}</p>
+  </div>
+);
+
+const SecurityMetric = ({ 
+  label, 
+  value, 
+  color 
+}: { 
+  label: string; 
+  value: string; 
+  color: string;
+}) => {
+  const colorClasses = {
+    blue: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    emerald: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    red: "text-red-400 bg-red-500/10 border-red-500/20",
+    indigo: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  };
+
+  return (
+    <div className="flex items-center justify-between p-4 lg:p-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
+      <span className="text-sm font-bold text-slate-400 uppercase tracking-wide">
+        {label}
+      </span>
+      <div className={`px-4 py-2 rounded-xl font-mono font-black text-lg lg:text-xl ${colorClasses[color as keyof typeof colorClasses]}`}>
+        {value}
+      </div>
+    </div>
+  );
+};
+
+const InstallStep = ({ 
+  num, 
+  icon, 
+  title, 
+  description 
+}: { 
+  num: string; 
+  icon: React.ReactNode; 
+  title: string; 
+  description: string;
+}) => (
+  <div className="text-center group">
+    <div className="flex items-center justify-center gap-4 mb-6">
+      <div className="text-5xl font-black text-blue-600/20 group-hover:text-blue-600/40 transition-colors">
+        {num}
+      </div>
+      <div className="w-14 h-14 bg-slate-100 group-hover:bg-blue-600 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-white transition-all shadow-sm">
+        {icon}
+      </div>
+    </div>
+    <h4 className="text-lg font-bold text-slate-900 mb-2">{title}</h4>
+    <p className="text-sm text-slate-600">{description}</p>
+  </div>
+);
+
+const FAQCard = ({ 
+  question, 
+  answer 
+}: { 
+  question: string; 
+  answer: string;
+}) => (
+  <div className="p-6 lg:p-8 bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-lg transition-all group">
+    <div className="flex items-start gap-4 mb-4">
+      <div className="p-2 bg-blue-50 group-hover:bg-blue-600 rounded-lg transition-colors flex-shrink-0">
+        <ChevronRight size={20} className="text-blue-600 group-hover:text-white transition-colors" />
+      </div>
+      <h4 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+        {question}
+      </h4>
+    </div>
+    <p className="text-slate-600 leading-relaxed pl-12">
+      {answer}
+    </p>
+  </div>
+);
 
 export default Index;
